@@ -2,17 +2,21 @@ from flask import Flask, render_template, jsonify, request, send_from_directory,
 from flask_cors import CORS
 import os.path
 import os
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from naive_bayes import train_model, classify_email, preprocess_text, load_stopwords
 import pandas as pd
+import traceback
 from datetime import datetime
 from collections import Counter
 import sys
 import io
-import traceback
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-# Import Gmail OAuth service
+# Import cấu hình và tiện ích
+from config import MODEL_PATH, VECTORIZER_PATH, DATA_FILE, FLASK_CONFIG
+from utils import logger, login_required, handle_error, get_service_safely
+
+# Import các module xử lý
+from naive_bayes import train_model, classify_email, preprocess_text, load_stopwords
 from gmail_oauth import (
     get_authorization_url, get_credentials_from_code, get_gmail_service,
     get_emails, move_to_spam, move_to_inbox, send_email, mark_as_read,
@@ -25,33 +29,32 @@ if hasattr(sys.stdout, 'buffer') and not isinstance(sys.stdout, io.TextIOWrapper
 if hasattr(sys.stderr, 'buffer') and not isinstance(sys.stderr, io.TextIOWrapper) or getattr(sys.stderr, 'encoding', '').lower() != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-# Set up Flask to serve Vite app
+# Thiết lập Flask và CORS
 app = Flask(__name__, static_folder='vite-frontend/dist/assets', template_folder='vite-frontend/dist')
-# Enable CORS for all routes
 CORS(app, supports_credentials=True)
-# Cấu hình session
-app.secret_key = os.urandom(24)  # Cần thiết cho session
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_PERMANENT'] = True
-app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 giờ
-app.json.ensure_ascii = False  # Đảm bảo JSON không chuyển đổi ký tự Unicode thành chuỗi \uXXXX
 
-# Đường dẫn lưu mô hình và vectorizer
-MODEL_PATH = 'spam_model.pkl'
-VECTORIZER_PATH = 'vectorizer.pkl'
+# Áp dụng cấu hình từ file config.py
+for key, value in FLASK_CONFIG.items():
+    app.config[key] = value
 
 # Biến toàn cục cho model và vectorizer
 MODEL, VECTORIZER = None, None
 
-def initialize_model(csv_file='spam_data.csv'):
-    """Khởi tạo model và vectorizer một lần duy nhất."""
+def initialize_model(csv_file=DATA_FILE):
+    """Khởi tạo model và vectorizer một lần duy nhất.
+
+    Args:
+        csv_file: str - Đường dẫn tới file dữ liệu huấn luyện
+
+    Returns:
+        tuple - (model, vectorizer) đã khởi tạo
+    """
     global MODEL, VECTORIZER
     if MODEL is None or VECTORIZER is None:
         try:
             MODEL, VECTORIZER = train_model(csv_file)
         except Exception as e:
-            print(f"Lỗi khi khởi tạo mô hình: {str(e)}")
-            traceback.print_exc()
+            logger.error(f"Lỗi khởi tạo mô hình: {str(e)}")
             raise
     return MODEL, VECTORIZER
 
@@ -79,26 +82,25 @@ def login():
         # Chuyển hướng đến trang xác thực Google
         return redirect(authorization_url)
     except Exception as e:
-        print(f"Lỗi khi tạo URL xác thực: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi tạo URL xác thực")
+        return jsonify(error_info), 500
 
 # Route xử lý callback từ Google OAuth
 @app.route('/oauth2callback')
 def oauth2callback():
     """Xử lý callback từ Google OAuth."""
     try:
-        # In ra các tham số nhận được để debug
-        print("OAuth callback received params:", request.args)
+        logger.info(f"OAuth callback received params: {request.args}")
 
         # Kiểm tra xem có lỗi không
         if 'error' in request.args:
             error_msg = request.args.get('error')
-            print(f"OAuth error: {error_msg}")
+            logger.error(f"OAuth error: {error_msg}")
             return jsonify({'error': f'Lỗi xác thực OAuth: {error_msg}'}), 400
 
         # Kiểm tra state để ngăn CSRF (bỏ qua nếu không có state trong session)
         if 'state' in session and request.args.get('state') != session.get('state'):
+            logger.warning("State mismatch - có thể là CSRF attempt")
             return redirect('/login')
 
         # Lấy credentials từ authorization code
@@ -107,7 +109,6 @@ def oauth2callback():
             return jsonify({'error': 'Không nhận được mã xác thực'}), 400
 
         credentials = get_credentials_from_code(code)
-
         if not credentials:
             return jsonify({'error': 'Không thể lấy thông tin xác thực'}), 500
 
@@ -127,13 +128,13 @@ def oauth2callback():
             'email': user_info['emailAddress'],
             'username': user_info['emailAddress'].split('@')[0]
         }
+        logger.info(f"Đăng nhập thành công: {session['user']['email']}")
 
         # Chuyển hướng về trang chủ
         return redirect('/')
     except Exception as e:
-        print(f"Lỗi trong OAuth callback: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi trong OAuth callback")
+        return jsonify(error_info), 500
 
 # API đăng nhập (giữ lại cho tương thích ngược)
 @app.route('/api/login', methods=['POST'])
@@ -192,24 +193,20 @@ def check_auth():
         # Nếu không có credentials hoặc không hợp lệ
         return jsonify({'authenticated': False})
     except Exception as e:
-        print(f"Lỗi kiểm tra đăng nhập: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'authenticated': False, 'error': str(e)})
+        error_info = handle_error(e, "Lỗi kiểm tra đăng nhập")
+        return jsonify({'authenticated': False, 'error': error_info['error']})
 
 @app.route('/emails')
+@login_required
 def get_emails_route():
     """API lấy và phân loại email."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         max_results = request.args.get('max', 20, type=int)
         search_query = request.args.get('q', '')
-        page_token = request.args.get('pageToken', None)  # None thay vì chuỗi rỗng
+        page_token = request.args.get('pageToken', None)
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
@@ -220,88 +217,104 @@ def get_emails_route():
         if 'error' in result:
             return jsonify({'error': result['error']}), 500
 
-        # Trả về trực tiếp kết quả từ get_emails
+        # Trả về kết quả
         return jsonify({
             'emails': result['emails'],
             'nextPageToken': result['nextPageToken']
         })
     except Exception as e:
-        print(f"Lỗi khi lấy emails: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi lấy emails")
+        return jsonify(error_info), 500
 
 @app.route('/mark_spam', methods=['POST'])
+@login_required
 def mark_spam():
     """API để đánh dấu email là spam."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         data = request.json
         email_id = data.get('email_id')
 
         if not email_id:
             return jsonify({'error': 'ID email không được cung cấp'}), 400
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
+        # Chuyển email vào thư mục spam
         success = move_to_spam(service, email_id)
 
-        if success:
-            return jsonify({'success': True})
-        else:
+        if not success:
             return jsonify({'error': 'Không thể đánh dấu email là spam'}), 500
+
+        # Thêm email vào tập dữ liệu huấn luyện nếu có nội dung
+        try:
+            subject = data.get('subject', '')
+            content = data.get('content', '')
+
+            if content:
+                MODEL, VECTORIZER = initialize_model()
+                add_to_dataset_internal('spam', content, subject)
+                logger.info(f"Đã thêm email vào dataset spam: {subject}")
+        except Exception as e:
+            logger.warning(f"Lỗi khi thêm vào dataset: {str(e)}")
+            # Không trả về lỗi để cho phép hoàn thành đánh dấu spam
+
+        return jsonify({'success': True})
     except Exception as e:
-        print(f"Lỗi khi đánh dấu email là spam: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi đánh dấu email là spam")
+        return jsonify(error_info), 500
 
 @app.route('/mark_not_spam', methods=['POST'])
+@login_required
 def mark_not_spam():
     """API để bỏ đánh dấu email là spam."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         data = request.json
         email_id = data.get('email_id')
 
         if not email_id:
             return jsonify({'error': 'ID email không được cung cấp'}), 400
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
+        # Chuyển email ra khỏi thư mục spam
         success = move_to_inbox(service, email_id)
 
-        if success:
-            return jsonify({'success': True})
-        else:
+        if not success:
             return jsonify({'error': 'Không thể bỏ đánh dấu email là spam'}), 500
+
+        # Thêm email vào tập dữ liệu huấn luyện nếu có nội dung
+        try:
+            subject = data.get('subject', '')
+            content = data.get('content', '')
+
+            if content:
+                MODEL, VECTORIZER = initialize_model()
+                add_to_dataset_internal('ham', content, subject)
+                logger.info(f"Đã thêm email vào dataset ham: {subject}")
+        except Exception as e:
+            logger.warning(f"Lỗi khi thêm vào dataset: {str(e)}")
+            # Không trả về lỗi để cho phép hoàn thành bỏ đánh dấu spam
+
+        return jsonify({'success': True})
     except Exception as e:
-        print(f"Lỗi khi bỏ đánh dấu email là spam: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi bỏ đánh dấu email là spam")
+        return jsonify(error_info), 500
 
 # API endpoint for stats - no template rendering needed
 
 @app.route('/api/list-mailboxes')
+@login_required
 def list_mailboxes_route():
     """API để liệt kê tất cả các thư mục trong Gmail."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
@@ -310,20 +323,16 @@ def list_mailboxes_route():
         mailboxes = [label['name'] for label in labels]
         return jsonify({'mailboxes': mailboxes})
     except Exception as e:
-        print(f"Lỗi khi liệt kê thư mục: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi liệt kê thư mục")
+        return jsonify(error_info), 500
 
 @app.route('/api/stats')
+@login_required
 def get_stats():
     """API lấy thống kê về email."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
@@ -458,36 +467,78 @@ def get_stats():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/retrain', methods=['POST'])
+@login_required
 def retrain_model():
     """API để huấn luyện lại mô hình."""
     try:
-        if os.path.exists(MODEL_PATH):
-            os.remove(MODEL_PATH)
-        if os.path.exists(VECTORIZER_PATH):
-            os.remove(VECTORIZER_PATH)
+        # Import cần thiết
+        from config import PIPELINE_PATH
 
+        # Xóa file pipeline cũ để buộc huấn luyện lại
+        if os.path.exists(PIPELINE_PATH):
+            os.remove(PIPELINE_PATH)
+            logger.info(f"Đã xóa pipeline cũ: {PIPELINE_PATH}")
+
+        # Xóa các file cũ nếu tồn tại (để dọn dẹp)
+        old_files = [MODEL_PATH, VECTORIZER_PATH]
+        for file_path in old_files:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"Đã dọn dẹp file cũ: {file_path}")
+
+        # Đảm bảo thư mục images tồn tại
+        images_dir = 'images'
+        if not os.path.exists(images_dir):
+            os.makedirs(images_dir)
+
+        # Reset biến global để buộc huấn luyện lại
         global MODEL, VECTORIZER
-        MODEL, VECTORIZER = train_model('spam_data.csv')
+        MODEL, VECTORIZER = None, None
 
-        return jsonify({'success': True, 'message': 'Đã huấn luyện lại mô hình thành công'})
+        # Huấn luyện lại mô hình
+        MODEL, VECTORIZER = train_model(DATA_FILE)
+        logger.info("Đã huấn luyện lại mô hình thành công")
+
+        # Kiểm tra xem các file đã được tạo chưa
+        pipeline_created = os.path.exists(PIPELINE_PATH)
+        model_perf_path = os.path.join(images_dir, 'model_performance.png')
+        confusion_matrix_path = os.path.join(images_dir, 'confusion_matrix.png')
+        images_created = os.path.exists(model_perf_path) and os.path.exists(confusion_matrix_path)
+
+        if pipeline_created:
+            logger.info(f"Đã lưu pipeline mới tại: {PIPELINE_PATH}")
+
+        if images_created:
+            logger.info(f"Đã lưu biểu đồ hiệu suất mô hình tại: {model_perf_path}")
+            logger.info(f"Đã lưu ma trận nhầm lẫn tại: {confusion_matrix_path}")
+        else:
+            logger.warning("Không thể tạo các biểu đồ hiệu suất mô hình và ma trận nhầm lẫn")
+
+        return jsonify({
+            'success': True,
+            'message': 'Đã huấn luyện lại mô hình thành công',
+            'pipeline_saved': pipeline_created,
+            'images_saved': images_created,
+            'performance_image': '/images/model_performance.png' if images_created else None,
+            'confusion_matrix_image': '/images/confusion_matrix.png' if images_created else None
+        })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi huấn luyện lại mô hình")
+        return jsonify(error_info), 500
 
 # API endpoints for spam and analyzer - no template rendering needed
 
 @app.route('/spam_emails')
+@login_required
 def get_spam_emails_route():
+    """API lấy danh sách email đã bị đánh dấu là spam."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         max_results = request.args.get('max', 20, type=int)
         search_query = request.args.get('q', '')
         page_token = request.args.get('pageToken', None)
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
@@ -497,75 +548,62 @@ def get_spam_emails_route():
             'nextPageToken': result['nextPageToken']
         })
     except Exception as e:
-        print(f"Lỗi khi lấy email spam: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi lấy email spam")
+        return jsonify(error_info), 500
 
 @app.route('/mark_read', methods=['POST'])
+@login_required
 def mark_read():
     """API để đánh dấu email là đã đọc."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         data = request.json
         email_id = data.get('email_id')
 
         if not email_id:
             return jsonify({'error': 'ID email không được cung cấp'}), 400
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
         success = mark_as_read(service, email_id)
 
-        if success:
-            return jsonify({'success': True})
-        else:
+        if not success:
             return jsonify({'error': 'Không thể đánh dấu email là đã đọc'}), 500
+
+        return jsonify({'success': True})
     except Exception as e:
-        print(f"Lỗi khi đánh dấu email là đã đọc: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi đánh dấu email là đã đọc")
+        return jsonify(error_info), 500
 
 @app.route('/delete_email', methods=['POST'])
+@login_required
 def delete_email_route():
     """API để xóa vĩnh viễn email."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         data = request.json
         email_id = data.get('email_id')
 
         if not email_id:
             return jsonify({'error': 'ID email không được cung cấp'}), 400
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
         success = delete_email(service, email_id)
-
         return jsonify({'success': success})
     except Exception as e:
-        print(f"Lỗi khi xóa email: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi xóa email")
+        return jsonify(error_info), 500
 
 @app.route('/analyze_text', methods=['POST'])
+@login_required
 def analyze_text():
     """API để phân tích nội dung email."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         data = request.json
         subject = data.get('subject', '')
         content = data.get('content', '')
@@ -583,18 +621,14 @@ def analyze_text():
             'email_stats': result.get('email_stats', {})
         })
     except Exception as e:
-        print(f"Lỗi khi phân tích nội dung email: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi phân tích nội dung email")
+        return jsonify(error_info), 500
 
 @app.route('/send_email', methods=['POST'])
+@login_required
 def send_email_route():
     """API để gửi email mới."""
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
         data = request.json
         to = data.get('to')
         subject = data.get('subject')
@@ -603,40 +637,37 @@ def send_email_route():
         if not all([to, subject, body]):
             return jsonify({'error': 'Thiếu thông tin cần thiết'}), 400
 
-        # Lấy Gmail service
-        service = get_gmail_service()
+        # Lấy Gmail service an toàn
+        service = get_service_safely()
         if not service:
             return jsonify({'error': 'Lỗi xác thực, vui lòng đăng nhập lại'}), 401
 
         success = send_email(service, to, subject, body)
-
         return jsonify({'success': success})
     except Exception as e:
-        print(f"Lỗi khi gửi email: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_info = handle_error(e, "Lỗi khi gửi email")
+        return jsonify(error_info), 500
 
-@app.route('/add_to_dataset', methods=['POST'])
-def add_to_dataset():
-    """API để thêm dữ liệu vào tập huấn luyện."""
+def add_to_dataset_internal(label, content, subject=''):
+    """Thêm dữ liệu vào tập huấn luyện và huấn luyện lại mô hình nếu cần.
+
+    Args:
+        label: str - Nhãn của dữ liệu (spam/ham)
+        content: str - Nội dung email
+        subject: str - Tiêu đề email (mặc định là rỗng)
+
+    Returns:
+        dict - Kết quả thực hiện
+    """
     # Khai báo biến global ở đầu hàm
     global MODEL, VECTORIZER
 
     try:
-        # Kiểm tra đăng nhập
-        if 'credentials' not in session or 'user' not in session:
-            return jsonify({'error': 'Chưa đăng nhập'}), 401
-
-        data = request.json
-        subject = data.get('subject', '')
-        content = data.get('content', '')
-        label = data.get('label')
-
-        if not content or not label:
-            return jsonify({'error': 'Thiếu nội dung hoặc nhãn'}), 400
-
+        # Tạo nội dung đầy đủ
         full_text = f"{subject}\n{content}" if subject else content
-        df = pd.read_csv('spam_data.csv')
+
+        # Đọc file dữ liệu
+        df = pd.read_csv(DATA_FILE)
 
         # Kiểm tra xem dữ liệu đã tồn tại chưa
         existing_index = df[df['text'] == full_text].index
@@ -647,40 +678,76 @@ def add_to_dataset():
 
             if existing_label == label:
                 # Nếu nhãn giống nhau, không cho phép thêm
-                return jsonify({
+                return {
                     'success': False,
                     'message': f'Dữ liệu đã tồn tại với nhãn {label}',
                     'existing_label': existing_label
-                }), 400
+                }
             else:
                 # Nếu nhãn khác nhau, cập nhật nhãn
                 df.loc[existing_index[0], 'label'] = label
-                df.to_csv('spam_data.csv', index=False)
+                df.to_csv(DATA_FILE, index=False)
 
                 # Huấn luyện lại mô hình
-                MODEL, VECTORIZER = train_model('spam_data.csv')
+                MODEL, VECTORIZER = train_model(DATA_FILE)
 
-                return jsonify({
+                return {
                     'success': True,
                     'message': f'Đã cập nhật nhãn từ {existing_label} thành {label}',
                     'updated': True,
                     'old_label': existing_label,
                     'new_label': label
-                })
+                }
         else:
             # Dữ liệu chưa tồn tại, thêm mới
             new_data = pd.DataFrame({'label': [label], 'text': [full_text]})
             df = pd.concat([df, new_data], ignore_index=True)
-            df.to_csv('spam_data.csv', index=False)
+            df.to_csv(DATA_FILE, index=False)
 
             # Huấn luyện lại mô hình
-            MODEL, VECTORIZER = train_model('spam_data.csv')
+            MODEL, VECTORIZER = train_model(DATA_FILE)
 
-        return jsonify({'success': True, 'message': 'Đã thêm dữ liệu vào tập huấn luyện và cập nhật mô hình'})
+            return {
+                'success': True,
+                'message': f'Đã thêm dữ liệu vào tập huấn luyện với nhãn {label}'
+            }
     except Exception as e:
-        print(f"Lỗi khi thêm dữ liệu vào tập huấn luyện: {str(e)}")
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Lỗi khi thêm dữ liệu vào tập huấn luyện: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+@app.route('/add_to_dataset', methods=['POST'])
+@login_required
+def add_to_dataset():
+    """API để thêm dữ liệu vào tập huấn luyện."""
+    try:
+        data = request.json
+        subject = data.get('subject', '')
+        content = data.get('content', '')
+        label = data.get('label')
+
+        if not content or not label:
+            return jsonify({'error': 'Thiếu nội dung hoặc nhãn'}), 400
+
+        # Sử dụng hàm add_to_dataset_internal đã tạo trước đó
+        result = add_to_dataset_internal(label, content, subject)
+
+        if not result['success']:
+            if 'existing_label' in result and result['existing_label'] == label:
+                # Nếu dữ liệu đã tồn tại với cùng nhãn
+                return jsonify({
+                    'success': False,
+                    'message': result['message'],
+                    'existing_label': result['existing_label']
+                }), 400
+            elif 'error' in result:
+                # Nếu có lỗi khác
+                return jsonify({'error': result['error']}), 500
+
+        # Trả về kết quả thành công
+        return jsonify(result)
+    except Exception as e:
+        error_info = handle_error(e, "Lỗi khi thêm dữ liệu vào tập huấn luyện")
+        return jsonify(error_info), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

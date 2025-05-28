@@ -3,34 +3,37 @@ from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from flask import session
+import re
+import html
+import base64
 import traceback
-
-# Phạm vi quyền truy cập
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
-
-# Đường dẫn đến file client secret
-CLIENT_SECRET_FILE = 'client_secret.json'
+from email.mime.text import MIMEText
+from config import OAUTH_SCOPES, CLIENT_SECRET_FILE, OAUTH_REDIRECT_URI
+from utils import logger
 
 def get_oauth_flow():
-    """Tạo OAuth flow cho Gmail API."""
+    """Tạo OAuth flow cho Gmail API.
+    
+    Returns:
+        Flow|None - Đối tượng OAuth flow hoặc None nếu lỗi
+    """
     try:
-        # Sử dụng URI chuyển hướng cố định thay vì url_for
-        # Đảm bảo URI này khớp với URI đã đăng ký trong Google Cloud Console
-        redirect_uri = "http://localhost:5000/oauth2callback"
-
         flow = Flow.from_client_secrets_file(
             CLIENT_SECRET_FILE,
-            scopes=SCOPES,
-            redirect_uri=redirect_uri
+            scopes=OAUTH_SCOPES,
+            redirect_uri=OAUTH_REDIRECT_URI
         )
         return flow
     except Exception as e:
-        print(f"Lỗi khi tạo OAuth flow: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Lỗi khi tạo OAuth flow: {str(e)}")
         return None
 
 def get_authorization_url():
-    """Tạo URL để người dùng xác thực."""
+    """Tạo URL để người dùng xác thực.
+    
+    Returns:
+        str|None - URL xác thực hoặc None nếu lỗi
+    """
     try:
         flow = get_oauth_flow()
         if not flow:
@@ -44,26 +47,35 @@ def get_authorization_url():
         session['state'] = state
         return authorization_url
     except Exception as e:
-        print(f"Lỗi khi tạo URL xác thực: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Lỗi khi tạo URL xác thực: {str(e)}")
         return None
 
 def get_credentials_from_code(code):
-    """Lấy credentials từ authorization code."""
+    """Lấy credentials từ authorization code.
+    
+    Args:
+        code: str - Authorization code từ Google OAuth
+        
+    Returns:
+        Credentials|None - Credentials hoặc None nếu lỗi
+    """
     try:
         flow = get_oauth_flow()
         if not flow:
             return None
 
-        flow.fetch_token(code=code)
+        flow.fetch_token(code=code, include_client_id=True)
         return flow.credentials
     except Exception as e:
-        print(f"Lỗi khi lấy credentials từ code: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Lỗi khi lấy credentials từ code: {str(e)}")
         return None
 
 def get_credentials_from_session():
-    """Lấy credentials từ session."""
+    """Lấy credentials từ session.
+    
+    Returns:
+        Credentials|None - Credentials hoặc None nếu lỗi
+    """
     try:
         if 'credentials' not in session:
             return None
@@ -78,12 +90,18 @@ def get_credentials_from_session():
             scopes=credentials_dict['scopes']
         )
     except Exception as e:
-        print(f"Lỗi khi lấy credentials từ session: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Lỗi khi lấy credentials từ session: {str(e)}")
         return None
 
 def save_credentials(credentials):
-    """Lưu credentials vào session."""
+    """Lưu credentials vào session.
+    
+    Args:
+        credentials: Credentials - Đối tượng credentials cần lưu
+        
+    Returns:
+        bool - True nếu thành công, False nếu lỗi
+    """
     try:
         session['credentials'] = {
             'token': credentials.token,
@@ -95,12 +113,15 @@ def save_credentials(credentials):
         }
         return True
     except Exception as e:
-        print(f"Lỗi khi lưu credentials: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Lỗi khi lưu credentials: {str(e)}")
         return False
 
 def get_gmail_service():
-    """Tạo và trả về dịch vụ Gmail API."""
+    """Tạo và trả về dịch vụ Gmail API.
+    
+    Returns:
+        object|None - Gmail service hoặc None nếu lỗi
+    """
     try:
         credentials = get_credentials_from_session()
         if not credentials:
@@ -115,8 +136,7 @@ def get_gmail_service():
 
         return build('gmail', 'v1', credentials=credentials)
     except Exception as e:
-        print(f"Lỗi khi tạo Gmail service: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Lỗi khi tạo Gmail service: {str(e)}")
         return None
 
 def get_emails(service, max_results=20, query=None, page_token=None, label_ids=['INBOX']):
@@ -382,8 +402,19 @@ def get_mailbox_stats(service):
             'error': str(e)
         }
 
-# Hàm phân loại email - import từ naive_bayes
 def classify_email(model, vectorizer, content, subject=''):
-    """Phân loại email sử dụng mô hình Naive Bayes."""
-    from naive_bayes import classify_email
-    return classify_email(model, vectorizer, content, subject)
+    """Phân loại email sử dụng mô hình Naive Bayes.
+    
+    Args:
+        model: object - Mô hình đã huấn luyện
+        vectorizer: object - Vectorizer đã huấn luyện
+        content: str - Nội dung email cần phân loại
+        subject: str - Tiêu đề email (tùy chọn)
+        
+    Returns:
+        dict - Kết quả phân loại
+    """
+    # Import function trực tiếp khi cần để tránh circular import
+    # Sử dụng late import pattern
+    from naive_bayes import classify_email as nb_classify
+    return nb_classify(model, vectorizer, content, subject)

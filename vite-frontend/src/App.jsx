@@ -7,10 +7,8 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-// Import Bootstrap 5 CSS
-import "bootstrap/dist/css/bootstrap.min.css";
+// Import FontAwesome
 import "@fortawesome/fontawesome-free/css/all.min.css";
-import "./assets/styles.css";
 
 // Import react-toastify
 import { ToastContainer, toast } from "react-toastify";
@@ -115,9 +113,11 @@ const ProtectedRoute = ({ children }) => {
   if (isAuthenticated === null) {
     // Still checking authentication
     return (
-      <div className="loading-container">
-        <RingLoader color="#5e60ce" size={80} />
-        <p className="mt-3 loading-text">Đang xác thực tài khoản</p>
+      <div className="fixed inset-0 flex items-center justify-center bg-white">
+        <div className="w-full max-w-sm text-center px-4">
+          <RingLoader color="#3B82F6" size={80} className="mx-auto" />
+          <p className="mt-4 text-text-main font-medium text-center">Đang xác thực tài khoản</p>
+        </div>
       </div>
     );
   }
@@ -128,18 +128,8 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   const [loading, setLoading] = useState(true);
 
-  // Load Bootstrap 5 JS and handle splash screen
+  // Handle splash screen
   useEffect(() => {
-    // Add Bootstrap 5 JS
-    const bootstrap = document.createElement("script");
-    bootstrap.src =
-      "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js";
-    bootstrap.integrity =
-      "sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL";
-    bootstrap.crossOrigin = "anonymous";
-    bootstrap.async = true;
-    document.body.appendChild(bootstrap);
-
     const timer = setTimeout(() => {
       setLoading(false);
     }, 1500);
@@ -206,7 +196,7 @@ function App() {
         draggable
         pauseOnHover
         theme="dark"
-        toastClassName="glass-toast"
+        className="z-50"
       />
     </>
   );
