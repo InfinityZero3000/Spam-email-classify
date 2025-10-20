@@ -5,6 +5,8 @@ const LoginPage = () => {
   useDocumentTitle("Đăng nhập");
   const handleGoogleLogin = () => {
     // Chuyển hướng đến route /login trên backend
+    // Trong dev mode, proxy sẽ tự động chuyển đến backend
+    // Trong production mode, cùng origin nên không cần xử lý gì
     window.location.href = "/login";
   };
 
@@ -78,17 +80,6 @@ const LoginPage = () => {
                 <i className="fas fa-lock mr-2"></i> Bảo mật dữ liệu email của
                 bạn
               </p>
-              <p className="mb-1">
-                <i className="fas fa-code mr-2"></i> Đồ án Khai phá dữ liệu
-              </p>
-              <div className="mt-4 pt-3 border-t border-gray-100">
-                <p className="font-medium mb-1">
-                  <i className="fas fa-users mr-2"></i> Nhóm 15
-                </p>
-                <p className="text-xs">
-                  Trần Công Minh | Lê Đức Trung | Nguyễn Hữu Thắng
-                </p>
-              </div>
             </div>
           </div>
         </div>

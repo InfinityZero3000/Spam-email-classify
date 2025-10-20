@@ -58,17 +58,6 @@ def initialize_model(csv_file=DATA_FILE):
             raise
     return MODEL, VECTORIZER
 
-# Serve Vite App
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    """Serve the Vite app for all routes except API endpoints."""
-    if path != "" and os.path.exists(os.path.join(app.template_folder, path)):
-        return send_from_directory(app.template_folder, path)
-    return render_template('index.html')
-
-# Hàm này đã không còn sử dụng với OAuth 2.0
-
 # Route đăng nhập với Google OAuth
 @app.route('/login')
 def login():
@@ -749,5 +738,15 @@ def add_to_dataset():
         error_info = handle_error(e, "Lỗi khi thêm dữ liệu vào tập huấn luyện")
         return jsonify(error_info), 500
 
+# Serve Vite App - Must be the last routes to avoid catching API calls
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    """Serve the Vite app for all routes except API endpoints."""
+    if path != "" and os.path.exists(os.path.join(app.template_folder, path)):
+        return send_from_directory(app.template_folder, path)
+    return render_template('index.html')
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Sử dụng port 5001 để tránh xung đột với AirPlay
+    app.run(debug=True, host='0.0.0.0', port=5001)

@@ -26,7 +26,7 @@ OAUTH_SCOPES = [
 ]
 
 # URL cho OAuth callback
-OAUTH_REDIRECT_URI = "http://localhost:5000/oauth2callback"
+OAUTH_REDIRECT_URI = "http://localhost:5001/oauth2callback"
 
 # Cấu hình Flask
 FLASK_CONFIG = {

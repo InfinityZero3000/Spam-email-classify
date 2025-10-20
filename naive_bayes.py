@@ -8,7 +8,10 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import seaborn as sns
 import numpy as np
-from underthesea import word_tokenize
+import nltk
+import json
+from datetime import datetime
+from nltk.tokenize import word_tokenize as nltk_word_tokenize
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
@@ -55,8 +58,17 @@ def preprocess_text(text):
     # Chuyển về chữ thường
     text = text.lower()
 
-    # Tách từ tiếng Việt
-    text = word_tokenize(text, format='text')
+    # Tách từ tiếng Việt (sử dụng NLTK thay cho underthesea)
+    try:
+        # Download punkt if not already downloaded
+        import nltk
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
+        words = nltk_word_tokenize(text)
+        text = ' '.join(words)
+    except:
+        # Fallback to simple word splitting if NLTK fails
+        text = ' '.join(text.split())
 
     # Loại bỏ từ ngắn và stopwords
     text = ' '.join([word for word in text.split() if len(word) > 2 and word not in STOPWORDS])
@@ -175,6 +187,37 @@ def save_confusion_matrix(cm, class_names, output_path):
         except:
             pass
 
+def save_training_metrics(train_metrics, val_metrics, test_metrics, best_params, output_path='training_metrics.json'):
+    """Lưu các metrics từ quá trình training vào file JSON.
+    
+    Args:
+        train_metrics: dict - Metrics trên tập train
+        val_metrics: dict - Metrics trên tập validation
+        test_metrics: dict - Metrics trên tập test
+        best_params: dict - Tham số tốt nhất từ GridSearchCV
+        output_path: str - Đường dẫn file JSON
+    """
+    try:
+        metrics_data = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'train': train_metrics,
+            'validation': val_metrics,
+            'test': test_metrics,
+            'best_params': best_params,
+            'overfitting_check': {
+                'train_test_gap': train_metrics['accuracy'] - test_metrics['accuracy'],
+                'train_val_gap': train_metrics['accuracy'] - val_metrics['accuracy'],
+                'is_overfitting': (train_metrics['accuracy'] - val_metrics['accuracy']) > 0.1
+            }
+        }
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(metrics_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Đã lưu training metrics tại: {output_path}")
+    except Exception as e:
+        logger.error(f"Lỗi khi lưu training metrics: {e}")
+
 def train_model(csv_file):
     """Huấn luyện mô hình Naive Bayes với TF-IDF và GridSearchCV.
 
@@ -218,10 +261,29 @@ def train_model(csv_file):
     # Tiền xử lý dữ liệu
     data['processed_text'] = data['text'].apply(preprocess_text)
 
-    # Chia dữ liệu
+    # Chia dữ liệu thành train/val/test (60%/20%/20%)
     X = data['processed_text']
     y = data['label']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Chia train+val (80%) và test (20%)
+    X_train_val, X_test, y_train_val, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    
+    # Chia train (75% of 80% = 60%) và val (25% of 80% = 20%)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train_val, y_train_val, test_size=0.25, random_state=42, stratify=y_train_val
+    )
+    
+    logger.info(f"Kích thước dữ liệu:")
+    logger.info(f"  - Train: {len(X_train)} mẫu ({len(X_train)/len(X)*100:.1f}%)")
+    logger.info(f"  - Val:   {len(X_val)} mẫu ({len(X_val)/len(X)*100:.1f}%)")
+    logger.info(f"  - Test:  {len(X_test)} mẫu ({len(X_test)/len(X)*100:.1f}%)")
+    
+    # Kiểm tra phân phối class trong từng tập
+    logger.info(f"Phân phối class trong Train: {y_train.value_counts().to_dict()}")
+    logger.info(f"Phân phối class trong Val: {y_val.value_counts().to_dict()}")
+    logger.info(f"Phân phối class trong Test: {y_test.value_counts().to_dict()}")
 
     # Tạo pipeline với TF-IDF và MultinomialNB
     pipeline = Pipeline([
@@ -229,7 +291,7 @@ def train_model(csv_file):
         ('classifier', MultinomialNB())
     ])
 
-    # Tìm kiếm tham số tối ưu với GridSearchCV
+    # Tìm kiếm tham số tối ưu với GridSearchCV trên validation set
     param_grid = {
         'vectorizer__max_features': [3000, 5000, 10000],
         'vectorizer__ngram_range': [(1, 1), (1, 2)],
@@ -237,37 +299,105 @@ def train_model(csv_file):
         'classifier__alpha': [0.01, 0.1, 0.5, 1.0],
     }
 
+    logger.info("Bắt đầu GridSearchCV để tìm tham số tối ưu...")
+    
+    # Tạo tập train+val để GridSearchCV có thể cross-validate
+    # Nhưng chúng ta sẽ đánh giá riêng trên val sau
     grid_search = GridSearchCV(
         pipeline,
         param_grid,
         cv=5,
         scoring='f1_weighted',
         verbose=1,
-        n_jobs=-1
+        n_jobs=-1,
+        return_train_score=True
     )
 
-    # Huấn luyện mô hình
+    # Huấn luyện trên tập train
+    logger.info("Huấn luyện mô hình trên tập TRAIN...")
     grid_search.fit(X_train, y_train)
 
     # Lấy mô hình tốt nhất
     best_model = grid_search.best_estimator_
     logger.info(f"Tham số tốt nhất: {grid_search.best_params_}")
+    logger.info(f"Best CV score (train): {grid_search.best_score_:.4f}")
 
     # Lấy vectorizer và model từ pipeline
     vectorizer = best_model.named_steps['vectorizer']
     model = best_model.named_steps['classifier']
 
-    # Đánh giá mô hình
+    # ========== ĐÁNH GIÁ TRÊN TẬP TRAIN ==========
+    logger.info("\n" + "="*60)
+    logger.info("ĐÁNH GIÁ TRÊN TẬP TRAIN")
+    logger.info("="*60)
+    y_train_pred = best_model.predict(X_train)
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    train_precision = precision_score(y_train, y_train_pred, average='weighted', zero_division=0)
+    train_recall = recall_score(y_train, y_train_pred, average='weighted', zero_division=0)
+    train_f1 = f1_score(y_train, y_train_pred, average='weighted', zero_division=0)
+    train_cm = confusion_matrix(y_train, y_train_pred)
+    
+    logger.info(f"Accuracy:  {train_accuracy:.4f}")
+    logger.info(f"Precision: {train_precision:.4f}")
+    logger.info(f"Recall:    {train_recall:.4f}")
+    logger.info(f"F1-Score:  {train_f1:.4f}")
+    logger.info(f"Confusion Matrix:\n{train_cm}")
+    
+    # ========== ĐÁNH GIÁ TRÊN TẬP VALIDATION ==========
+    logger.info("\n" + "="*60)
+    logger.info("ĐÁNH GIÁ TRÊN TẬP VALIDATION")
+    logger.info("="*60)
+    y_val_pred = best_model.predict(X_val)
+    val_accuracy = accuracy_score(y_val, y_val_pred)
+    val_precision = precision_score(y_val, y_val_pred, average='weighted', zero_division=0)
+    val_recall = recall_score(y_val, y_val_pred, average='weighted', zero_division=0)
+    val_f1 = f1_score(y_val, y_val_pred, average='weighted', zero_division=0)
+    val_cm = confusion_matrix(y_val, y_val_pred)
+    
+    logger.info(f"Accuracy:  {val_accuracy:.4f}")
+    logger.info(f"Precision: {val_precision:.4f}")
+    logger.info(f"Recall:    {val_recall:.4f}")
+    logger.info(f"F1-Score:  {val_f1:.4f}")
+    logger.info(f"Confusion Matrix:\n{val_cm}")
+    
+    # Kiểm tra overfitting
+    accuracy_diff = train_accuracy - val_accuracy
+    if accuracy_diff > 0.1:
+        logger.warning(f"⚠️  CẢNH BÁO: Có dấu hiệu overfitting!")
+        logger.warning(f"   Train accuracy ({train_accuracy:.4f}) cao hơn Val accuracy ({val_accuracy:.4f}) tới {accuracy_diff:.4f}")
+    else:
+        logger.info(f"✓ Model generalization tốt (gap: {accuracy_diff:.4f})")
+
+    # ========== ĐÁNH GIÁ TRÊN TẬP TEST (Final Evaluation) ==========
+    logger.info("\n" + "="*60)
+    logger.info("ĐÁNH GIÁ CUỐI CÙNG TRÊN TẬP TEST")
+    logger.info("="*60)
     y_pred = best_model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, average='weighted')
-    recall = recall_score(y_test, y_pred, average='weighted')
-    f1 = f1_score(y_test, y_pred, average='weighted')
+    precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
+    recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
+    f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
     report = classification_report(y_test, y_pred)
     cm = confusion_matrix(y_test, y_pred)
 
-    logger.info(f"Độ chính xác: {accuracy}")
-    logger.info(f"Báo cáo phân loại:\n{report}")
+    logger.info(f"Accuracy:  {accuracy:.4f}")
+    logger.info(f"Precision: {precision:.4f}")
+    logger.info(f"Recall:    {recall:.4f}")
+    logger.info(f"F1-Score:  {f1:.4f}")
+    logger.info(f"\nBáo cáo phân loại chi tiết:\n{report}")
+    logger.info(f"Confusion Matrix:\n{cm}")
+    
+    # ========== TỔNG HỢP KẾT QUẢ ==========
+    logger.info("\n" + "="*60)
+    logger.info("TỔNG HỢP KẾT QUẢ")
+    logger.info("="*60)
+    logger.info(f"{'Metric':<15} {'Train':<10} {'Val':<10} {'Test':<10}")
+    logger.info("-" * 60)
+    logger.info(f"{'Accuracy':<15} {train_accuracy:<10.4f} {val_accuracy:<10.4f} {accuracy:<10.4f}")
+    logger.info(f"{'Precision':<15} {train_precision:<10.4f} {val_precision:<10.4f} {precision:<10.4f}")
+    logger.info(f"{'Recall':<15} {train_recall:<10.4f} {val_recall:<10.4f} {recall:<10.4f}")
+    logger.info(f"{'F1-Score':<15} {train_f1:<10.4f} {val_f1:<10.4f} {f1:<10.4f}")
+    logger.info("="*60)
 
     # Đảm bảo thư mục images tồn tại
     images_dir = 'images'
@@ -286,6 +416,45 @@ def train_model(csv_file):
         save_confusion_matrix(cm, ['Ham', 'Spam'], os.path.join(images_dir, 'confusion_matrix.png'))
     except Exception as e:
         logger.warning(f"Không thể tạo biểu đồ ma trận nhầm lẫn: {e}")
+
+    # Lưu training metrics vào JSON
+    try:
+        train_metrics_dict = {
+            'accuracy': float(train_accuracy),
+            'precision': float(train_precision),
+            'recall': float(train_recall),
+            'f1_score': float(train_f1),
+            'samples': len(X_train),
+            'confusion_matrix': train_cm.tolist()
+        }
+        
+        val_metrics_dict = {
+            'accuracy': float(val_accuracy),
+            'precision': float(val_precision),
+            'recall': float(val_recall),
+            'f1_score': float(val_f1),
+            'samples': len(X_val),
+            'confusion_matrix': val_cm.tolist()
+        }
+        
+        test_metrics_dict = {
+            'accuracy': float(accuracy),
+            'precision': float(precision),
+            'recall': float(recall),
+            'f1_score': float(f1),
+            'samples': len(X_test),
+            'confusion_matrix': cm.tolist()
+        }
+        
+        save_training_metrics(
+            train_metrics_dict,
+            val_metrics_dict,
+            test_metrics_dict,
+            grid_search.best_params_,
+            'training_metrics.json'
+        )
+    except Exception as e:
+        logger.warning(f"Không thể lưu training metrics: {e}")
 
     # Lưu pipeline hoàn chỉnh (chỉ cần file này)
     joblib.dump(best_model, PIPELINE_PATH)

@@ -80,4 +80,25 @@ This project was migrated from Create React App to Vite for faster development a
 
 ## Proxy Configuration
 
-The application proxies API requests to the backend service running at http://localhost:5000. This is configured in the `vite.config.js` file.
+The application proxies API requests to the backend service running at **http://localhost:5001**. This is configured in the `vite.config.js` file.
+
+**Important:** The backend must be running at port 5001 before starting the frontend dev server. See `DEVELOPMENT.md` in the root directory for details.
+
+### Development Workflow
+
+1. **Start Backend** (Terminal 1):
+   ```bash
+   cd ..  # Go to root directory
+   python3 app.py
+   ```
+   Backend runs at: http://localhost:5001
+
+2. **Start Frontend** (Terminal 2):
+   ```bash
+   npm run dev
+   ```
+   Frontend runs at: http://localhost:5173
+
+3. **Access the app**: http://localhost:5173
+
+The Vite dev server will automatically proxy API requests from port 5173 to the backend at port 5001.

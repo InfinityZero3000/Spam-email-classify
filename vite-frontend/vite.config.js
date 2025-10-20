@@ -6,22 +6,27 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/emails': 'http://localhost:5000',
-      '/spam_emails': 'http://localhost:5000',
-      '/api': 'http://localhost:5000',
-      '/authenticate': 'http://localhost:5000',
-      '/mark_spam': 'http://localhost:5000',
-      '/mark_not_spam': 'http://localhost:5000',
-      '/mark_read': 'http://localhost:5000',
-      '/delete_email': 'http://localhost:5000',
-      '/analyze_text': 'http://localhost:5000',
-      '/send_email': 'http://localhost:5000',
-      '/retrain': 'http://localhost:5000',
-      '/add_to_dataset': 'http://localhost:5000',
-      '/api/login': 'http://localhost:5000',
-      '/api/logout': 'http://localhost:5000',
-      '/api/register': 'http://localhost:5000',
-      '/api/check-auth': 'http://localhost:5000'
+      // OAuth endpoints
+      '/login': 'http://localhost:5001',
+      '/oauth2callback': 'http://localhost:5001',
+      '/authenticate': 'http://localhost:5001',
+      
+      // Email endpoints
+      '/emails': 'http://localhost:5001',
+      '/spam_emails': 'http://localhost:5001',
+      '/mark_spam': 'http://localhost:5001',
+      '/mark_not_spam': 'http://localhost:5001',
+      '/mark_read': 'http://localhost:5001',
+      '/delete_email': 'http://localhost:5001',
+      '/send_email': 'http://localhost:5001',
+      
+      // Analysis endpoints
+      '/analyze_text': 'http://localhost:5001',
+      '/retrain': 'http://localhost:5001',
+      '/add_to_dataset': 'http://localhost:5001',
+      
+      // API endpoints (catch-all for /api/*)
+      '/api': 'http://localhost:5001'
     }
   },
   build: {

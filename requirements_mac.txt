@@ -1,0 +1,15 @@
+flask
+flask-cors
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+pandas
+scikit-learn
+joblib
+numpy
+matplotlib
+seaborn
+flask-wtf
+python-dotenv
+# underthesea - commented out due to installation issues on macOS
+nltk

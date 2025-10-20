@@ -100,8 +100,8 @@
      - Chọn "Create Credentials" > "OAuth client ID"
      - Chọn "Web application" làm Application type
      - Thêm các URI sau vào Authorized redirect URIs:
-       - `http://localhost:5000/oauth2callback`
-       - `http://127.0.0.1:5000/oauth2callback`
+       - `http://localhost:5001/oauth2callback`
+       - `http://127.0.0.1:5001/oauth2callback`
      - Tải xuống file JSON và đổi tên thành `client_secret.json`
      - Đặt file `client_secret.json` vào thư mục gốc của dự án
 
@@ -134,24 +134,60 @@
 
 1. **Khởi động ứng dụng**:
 
-   1. Cách 1
+   ### Chế độ Development (Phát triển)
 
-   - Khởi động terminal và cd vite-frontend rồi chạy `npm install` để cài đặt các thư viện Node.js
-   - Chạy file `run_app.bat` (nếu có) hoặc tạo file này với nội dung:
-     ```
-     cd vite-frontend
-     npm run build
-     cd ..
-     python app.py
-     ```
-   - Ứng dụng sẽ chạy trên http://localhost:5000
+   **Dùng cho việc phát triển và test - có hot reload tự động**
 
-   2. Cách 2
+   ```bash
+   # Chạy script tự động (khuyến nghị)
+   ./run_dev.sh
+   ```
 
-   - Khởi động terminal và cd vite-frontend rồi chạy `npm install` để cài đặt các thư viện Node.js
-   - cd vite-frontend rồi chạy `npm run build` để build frontend
-   - cd trở lại thư mục gốc rồi chạy `python app.py` để khởi động backend
-   - Ứng dụng sẽ chạy trên http://localhost:5000
+   Script này sẽ:
+   - Tự động cài đặt dependencies cho frontend (nếu cần)
+   - Khởi động Backend Flask ở http://localhost:5001
+   - Khởi động Frontend Vite Dev Server ở http://localhost:5173
+   - Frontend sẽ tự động proxy các API requests đến backend
+   - Hỗ trợ hot reload - thay đổi code sẽ tự động cập nhật
+
+   **Hoặc chạy thủ công:**
+
+   Terminal 1 - Backend:
+   ```bash
+   python3 app.py
+   # Backend chạy ở http://localhost:5001
+   ```
+
+   Terminal 2 - Frontend:
+   ```bash
+   cd vite-frontend
+   npm install  # Chỉ cần chạy lần đầu
+   npm run dev
+   # Frontend chạy ở http://localhost:5173
+   ```
+
+   Sau đó truy cập: **http://localhost:5173**
+
+   ### Chế độ Production (Triển khai)
+
+   **Dùng để build và chạy phiên bản production**
+
+   ```bash
+   # Build frontend
+   cd vite-frontend
+   npm install
+   npm run build
+   cd ..
+
+   # Chạy backend (sẽ serve frontend đã build)
+   python3 app.py
+   ```
+
+   Sau đó truy cập: **http://localhost:5001**
+
+   **Hoặc dùng script có sẵn:**
+   - Windows: Chạy `run_app.bat`
+   - macOS/Linux: Chạy `./run_mac.sh`
 
 2. **Đăng nhập với Google**:
 
@@ -160,13 +196,26 @@
    - Đăng nhập vào tài khoản Google và cấp quyền cho ứng dụng
    - Sau khi xác thực, bạn sẽ được chuyển hướng trở lại ứng dụng
 
+### Luồng hoạt động trong Development Mode
+
+1. **User truy cập** http://localhost:5173 (Frontend Vite Dev Server)
+2. **Frontend** hiển thị trang login
+3. **User click** "Đăng nhập với Google"
+4. **Request** `/login` được **proxy** từ port 5173 → 5001 (Backend)
+5. **Backend** tạo OAuth URL và redirect đến Google
+6. **User đăng nhập** Google và cấp quyền
+7. **Google redirect** về `http://localhost:5001/oauth2callback`
+8. **Backend** xử lý callback, lưu credentials vào session
+9. **Backend** redirect về `/` (http://localhost:5173)
+10. **Frontend** kiểm tra auth và hiển thị ứng dụng
+
 ### Xử lý lỗi OAuth
 
 Nếu bạn gặp lỗi "redirect_uri_mismatch" khi đăng nhập:
 
 1. Kiểm tra lại các URI chuyển hướng trong Google Cloud Console:
 
-   - Đảm bảo đã thêm cả `http://localhost:5000/oauth2callback` và `http://127.0.0.1:5000/oauth2callback`
+   - Đảm bảo đã thêm cả `http://localhost:5001/oauth2callback` và `http://127.0.0.1:5001/oauth2callback`
    - Đảm bảo URI trong file `config.py` (OAUTH_REDIRECT_URI) khớp với URI đã đăng ký
 
 2. Xóa cache trình duyệt và cookie:
@@ -183,6 +232,15 @@ Nếu bạn gặp lỗi "redirect_uri_mismatch" khi đăng nhập:
 - **Phân tích Email**: Nhập nội dung để kiểm tra mức độ spam và phân tích chi tiết
 - **Thống kê**: Xem số liệu thống kê về email và hiệu suất mô hình
 - **Soạn email**: Soạn và gửi email mới từ giao diện ứng dụng
+
+## Tài Liệu Chi Tiết
+
+- **[QUICKSTART.md](QUICKSTART.md)**: Hướng dẫn nhanh để chạy ứng dụng
+- **[DEVELOPMENT.md](DEVELOPMENT.md)**: Chi tiết về development mode và kiến trúc
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: Sơ đồ kiến trúc hệ thống
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Giải quyết các vấn đề thường gặp
+- **[RETRAIN_MECHANISM.md](RETRAIN_MECHANISM.md)**: Chi tiết cơ chế huấn luyện lại mô hình
+- **[RETRAIN_FLOWCHART.md](RETRAIN_FLOWCHART.md)**: Sơ đồ luồng huấn luyện mô hình
 
 ## Công Nghệ Sử Dụng
 
@@ -210,13 +268,3 @@ Nếu bạn gặp lỗi "redirect_uri_mismatch" khi đăng nhập:
   - joblib: Lưu mô hình Naive Bayes và vectorizer
   - Flask Session: Lưu thông tin phiên làm việc và token xác thực
   - CSV: Lưu dữ liệu huấn luyện cho mô hình
-
-## Giấy Phép
-
-Dự án này được cấp phép theo Giấy phép MIT - xem tệp LICENSE để biết chi tiết.
-
-## Thành viên thực hiện
-
-- Trần Công Minh
-- Nguyễn Hữu Thắng
-- Lê Đức Trung
