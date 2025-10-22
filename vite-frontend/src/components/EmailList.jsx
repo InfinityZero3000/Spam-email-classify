@@ -102,15 +102,15 @@ const EmailList = ({ type = "inbox" }) => {
 
   // Debug logging
   useEffect(() => {
-    if (data) {
-      console.log('📧 Email List State:', {
-        totalEmails: emails.length,
-        hasNextPage,
-        isFetchingNextPage,
-        isLoading,
-        nextPageToken: data.pages[data.pages.length - 1]?.nextPageToken
-      });
-    }
+    console.log('📧 Email List Debug:', {
+      totalEmails: emails.length,
+      hasNextPage,
+      isFetchingNextPage,
+      isLoading,
+      pagesCount: data?.pages?.length || 0,
+      lastPageToken: data?.pages?.[data.pages.length - 1]?.nextPageToken || 'none',
+      allData: data
+    });
   }, [emails.length, hasNextPage, isFetchingNextPage, isLoading, data]);
 
   // Infinite scroll: Tự động load khi scroll gần đến cuối
@@ -434,6 +434,12 @@ const EmailList = ({ type = "inbox" }) => {
               />
             ))}
           </div>
+          
+          {/* Debug Info - Remove in production */}
+          <div className="p-2 bg-yellow-50 border border-yellow-200 text-xs text-yellow-800">
+            Debug: hasNextPage={String(hasNextPage)} | isFetchingNextPage={String(isFetchingNextPage)} | emails={emails.length}
+          </div>
+          
           {/* Loading indicator khi đang tải thêm */}
           {isFetchingNextPage && (
             <div className="p-6 flex justify-center bg-gray-50">
