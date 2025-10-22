@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getEmails,
   getSpamEmails,
@@ -70,6 +70,7 @@ const EmailList = ({ type = "inbox" }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [datasetLabel, setDatasetLabel] = useState("");
   const [isAddingToDataset, setIsAddingToDataset] = useState(false);
+  const scrollContainerRef = useRef(null);
 
   // Sử dụng React Query để fetch emails
   const {
@@ -80,7 +81,7 @@ const EmailList = ({ type = "inbox" }) => {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useQuery({
+  } = useInfiniteQuery({
     queryKey: ["emails", type, searchQuery],
     queryFn: async ({ pageParam = null }) => {
       const response =
@@ -92,11 +93,31 @@ const EmailList = ({ type = "inbox" }) => {
     getNextPageParam: (lastPage) => lastPage.nextPageToken || undefined,
     keepPreviousData: true,
     staleTime: 5 * 60 * 1000,
+    initialPageParam: null,
   });
 
-  // Trích xuất emails từ data
-  const emails = data?.emails || [];
+  // Trích xuất emails từ data.pages
+  const emails = data?.pages?.flatMap((page) => page.emails) || [];
   const error = queryError ? `Lỗi khi tải email: ${queryError.message}` : "";
+
+  // Infinite scroll: Tự động load khi scroll gần đến cuối
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // Khi scroll đến 80% chiều cao, load thêm
+      if (scrollHeight - scrollTop - clientHeight < 200) {
+        if (hasNextPage && !isFetchingNextPage && !isLoading) {
+          fetchNextPage();
+        }
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [hasNextPage, isFetchingNextPage, isLoading, fetchNextPage]);
 
   // Mutation cho markAsSpam
   const markSpamMutation = useMutation({
@@ -382,7 +403,7 @@ const EmailList = ({ type = "inbox" }) => {
           <p className="text-text-secondary">Không có email nào</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto" ref={scrollContainerRef}>
           <div className="divide-y divide-gray-200">
             {emails.map((email) => (
               <EmailItem
@@ -393,14 +414,41 @@ const EmailList = ({ type = "inbox" }) => {
               />
             ))}
           </div>
-          {hasNextPage && (
+          {isFetchingNextPage && (
+            <div className="p-4 flex justify-center">
+              <div className="flex items-center space-x-2 text-primary">
+                <svg
+                  className="animate-spin h-5 w-5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+                <span>Đang tải thêm email...</span>
+              </div>
+            </div>
+          )}
+          {hasNextPage && !isFetchingNextPage && (
             <div className="p-4 flex justify-center">
               <button
                 className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
                 onClick={handleLoadMore}
                 disabled={isFetchingNextPage}
               >
-                {isFetchingNextPage ? "Đang tải..." : "Tải thêm"}
+                Tải thêm
               </button>
             </div>
           )}

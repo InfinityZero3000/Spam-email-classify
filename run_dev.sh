@@ -4,20 +4,20 @@
 # Backend (Flask) chạy ở port 5001
 # Frontend (Vite) chạy ở port 5173 với proxy đến backend
 
-echo "🚀 Starting Spam Email Classifier - Development Mode"
+echo "Starting Spam Email Classifier - Development Mode"
 echo "=================================================="
 
 # Kiểm tra xem Python có sẵn không
 if ! command -v python3 &> /dev/null
 then
-    echo "❌ Python3 không được tìm thấy. Vui lòng cài đặt Python3."
+    echo "Python3 không được tìm thấy. Vui lòng cài đặt Python3."
     exit 1
 fi
 
 # Kiểm tra xem Node.js có sẵn không
 if ! command -v node &> /dev/null
 then
-    echo "❌ Node.js không được tìm thấy. Vui lòng cài đặt Node.js."
+    echo "Node.js không được tìm thấy. Vui lòng cài đặt Node.js."
     exit 1
 fi
 
@@ -35,7 +35,7 @@ fi
 
 # Kiểm tra và cài đặt dependencies cho frontend nếu cần
 if [ ! -d "vite-frontend/node_modules" ]; then
-    echo "📦 Installing frontend dependencies..."
+    echo "Installing frontend dependencies..."
     cd vite-frontend
     npm install
     cd ..
@@ -56,7 +56,7 @@ echo "⏳ Waiting for backend to start..."
 for i in {1..10}; do
     sleep 1
     if curl -s http://localhost:5001/api/check-auth > /dev/null 2>&1; then
-        echo "✅ Backend is ready!"
+        echo "Backend is ready!"
         break
     fi
     echo "   Checking backend... ($i/10)"
@@ -64,20 +64,20 @@ done
 
 # Kiểm tra backend có chạy không
 if ! curl -s http://localhost:5001/api/check-auth > /dev/null 2>&1; then
-    echo "❌ Backend failed to start! Check backend.log for errors:"
+    echo "Backend failed to start! Check backend.log for errors:"
     tail -20 backend.log
     kill $BACKEND_PID 2>/dev/null
     exit 1
 fi
 
 # Khởi động frontend dev server
-echo "🎨 Starting Frontend (Vite) at http://localhost:5173..."
+echo "Starting Frontend (Vite) at http://localhost:5173..."
 echo ""
 echo "======================================================"
-echo "  ✨ Application is starting!"
-echo "  📱 Frontend: http://localhost:5173"
+echo "  Application is starting!"
+echo "  Frontend: http://localhost:5173"
 echo "  🔧 Backend:  http://localhost:5001"
-echo "  📝 Backend logs: backend.log"
+echo "  Backend logs: backend.log"
 echo "======================================================"
 echo ""
 cd vite-frontend
@@ -85,6 +85,6 @@ npm run dev
 
 # Cleanup: Khi tắt frontend (Ctrl+C), cũng tắt backend
 echo ""
-echo "🛑 Shutting down..."
+echo "Shutting down..."
 kill $BACKEND_PID 2>/dev/null
-echo "✅ Stopped successfully!"
+echo "Stopped successfully!"

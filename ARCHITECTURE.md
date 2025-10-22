@@ -103,16 +103,16 @@
 ## Lợi ích của kiến trúc này
 
 ### Development Mode
-- ✅ **Hot Reload**: Code thay đổi → UI tự động cập nhật
-- ✅ **Fast Refresh**: React components reload nhanh
-- ✅ **Debugging**: Dễ dàng debug với source maps
-- ✅ **Separation**: Frontend và Backend độc lập
+- **Hot Reload**: Code thay đổi → UI tự động cập nhật
+- **Fast Refresh**: React components reload nhanh
+- **Debugging**: Dễ dàng debug với source maps
+- **Separation**: Frontend và Backend độc lập
 
 ### Production Mode
-- ✅ **Single Server**: Chỉ cần chạy một server
-- ✅ **No CORS Issues**: Same origin, không có vấn đề CORS
-- ✅ **Optimized**: JS/CSS đã minified và bundled
-- ✅ **Easy Deployment**: Deploy một ứng dụng duy nhất
+- **Single Server**: Chỉ cần chạy một server
+- **No CORS Issues**: Same origin, không có vấn đề CORS
+- **Optimized**: JS/CSS đã minified và bundled
+- **Easy Deployment**: Deploy một ứng dụng duy nhất
 
 ## Port Usage
 

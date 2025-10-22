@@ -31,10 +31,10 @@ Chi tiết: Xem `google_cloud_setup_guide.md`
 ```
 
 Script này sẽ kiểm tra:
-- ✅ Python, Node.js đã cài đặt
-- ✅ Dependencies đã cài đặt
-- ✅ Files cần thiết đã có
-- ✅ Ports có sẵn hay đang dùng
+- Python, Node.js đã cài đặt
+- Dependencies đã cài đặt
+- Files cần thiết đã có
+- Ports có sẵn hay đang dùng
 
 ### 4. Chạy ứng dụng
 
