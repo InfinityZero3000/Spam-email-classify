@@ -100,6 +100,19 @@ const EmailList = ({ type = "inbox" }) => {
   const emails = data?.pages?.flatMap((page) => page.emails) || [];
   const error = queryError ? `Lỗi khi tải email: ${queryError.message}` : "";
 
+  // Debug logging
+  useEffect(() => {
+    if (data) {
+      console.log('📧 Email List State:', {
+        totalEmails: emails.length,
+        hasNextPage,
+        isFetchingNextPage,
+        isLoading,
+        nextPageToken: data.pages[data.pages.length - 1]?.nextPageToken
+      });
+    }
+  }, [emails.length, hasNextPage, isFetchingNextPage, isLoading, data]);
+
   // Infinite scroll: Tự động load khi scroll gần đến cuối
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -107,9 +120,16 @@ const EmailList = ({ type = "inbox" }) => {
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      // Khi scroll đến 80% chiều cao, load thêm
-      if (scrollHeight - scrollTop - clientHeight < 200) {
+      const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+      
+      // Khi scroll đến 90% chiều cao, tự động load thêm
+      if (scrollPercentage > 0.9) {
         if (hasNextPage && !isFetchingNextPage && !isLoading) {
+          console.log('🔄 Auto-loading more emails...', {
+            hasNextPage,
+            isFetchingNextPage,
+            scrollPercentage: Math.round(scrollPercentage * 100) + '%'
+          });
           fetchNextPage();
         }
       }
@@ -414,9 +434,10 @@ const EmailList = ({ type = "inbox" }) => {
               />
             ))}
           </div>
+          {/* Loading indicator khi đang tải thêm */}
           {isFetchingNextPage && (
-            <div className="p-4 flex justify-center">
-              <div className="flex items-center space-x-2 text-primary">
+            <div className="p-6 flex justify-center bg-gray-50">
+              <div className="flex items-center space-x-3 text-primary">
                 <svg
                   className="animate-spin h-5 w-5"
                   xmlns="http://www.w3.org/2000/svg"
@@ -437,19 +458,67 @@ const EmailList = ({ type = "inbox" }) => {
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   ></path>
                 </svg>
-                <span>Đang tải thêm email...</span>
+                <span className="font-medium">Đang tải thêm email...</span>
               </div>
             </div>
           )}
+          
+          {/* Nút "Tải thêm" - hiển thị khi còn email và không đang tải */}
           {hasNextPage && !isFetchingNextPage && (
-            <div className="p-4 flex justify-center">
+            <div className="p-6 flex justify-center bg-gradient-to-t from-gray-50 to-white border-t">
               <button
-                className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg transition-colors"
+                className="group relative px-6 py-3 bg-primary hover:bg-primary-dark text-white font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 flex items-center space-x-2"
                 onClick={handleLoadMore}
                 disabled={isFetchingNextPage}
               >
-                Tải thêm
+                <svg 
+                  className="w-5 h-5 group-hover:animate-bounce" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M19 9l-7 7-7-7" 
+                  />
+                </svg>
+                <span>Tải thêm email</span>
+                <svg 
+                  className="w-5 h-5 group-hover:animate-bounce" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M19 9l-7 7-7-7" 
+                  />
+                </svg>
               </button>
+            </div>
+          )}
+          
+          {/* Thông báo khi hết email */}
+          {!hasNextPage && emails.length > 0 && (
+            <div className="p-6 flex justify-center text-text-secondary bg-gray-50 border-t">
+              <div className="flex items-center space-x-2">
+                <svg 
+                  className="w-5 h-5" 
+                  fill="currentColor" 
+                  viewBox="0 0 20 20"
+                >
+                  <path 
+                    fillRule="evenodd" 
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" 
+                    clipRule="evenodd" 
+                  />
+                </svg>
+                <span className="font-medium">Đã tải tất cả email</span>
+              </div>
             </div>
           )}
         </div>
